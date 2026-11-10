@@ -1,0 +1,10 @@
+#!/bin/bash
+# Installs the Pivot server binary named by PIVOT_SERVER_BIN and the storage.
+# Writing through an Iceberg REST catalog is not in a released Pivot yet, so
+# the binary is a build of the development branch rather than a download.
+set -e
+
+install -m 755 "${PIVOT_SERVER_BIN:?PIVOT_SERVER_BIN is required}" ./pivot
+command -v psql >/dev/null 2>&1 || { sudo apt-get update -y && sudo apt-get install -y postgresql-client; }
+
+../lib/iceberg/install

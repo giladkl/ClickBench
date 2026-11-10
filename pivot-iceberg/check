@@ -1,0 +1,4 @@
+#!/bin/bash
+set -e
+source ./env.sh
+psql -h 127.0.0.1 -p "$PIVOT_PORT" -U pivot -d pivot -tAc "SELECT 1" >/dev/null

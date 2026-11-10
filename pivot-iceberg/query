@@ -1,0 +1,17 @@
+#!/bin/bash
+# Reads a SQL query from stdin, runs it via psql.
+# Stdout: query result. Stderr: query runtime in fractional seconds on the
+# last line. Exit non-zero on error.
+source ./env.sh
+
+query=$(cat)
+out=$(psql -h 127.0.0.1 -p "$PIVOT_PORT" -U pivot -d pivot -q -v ON_ERROR_STOP=1 \
+    -c '\timing on' -c "$query" 2>&1) && status=0 || status=$?
+
+if [ "$status" -ne 0 ]; then
+    printf '%s\n' "$out" >&2
+    exit "$status"
+fi
+
+printf '%s\n' "$out" | grep -v '^Time:'
+printf '%s\n' "$out" | awk '/^Time:/ { printf "%.6f\n", $2 / 1000 }' | tail -n1 >&2

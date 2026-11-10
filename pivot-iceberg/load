@@ -1,0 +1,19 @@
+#!/bin/bash
+# Creates the Iceberg table through the REST catalog and writes the dataset
+# into it with a single INSERT with the default settings.
+set -e
+
+../lib/iceberg/prepare
+source ./env.sh
+
+# The Parquet files declare their strings as plain binary, so they are read
+# through a table that adopts them in place under the string column types.
+mkdir -p source
+mv hits_*.parquet source/
+
+{
+    sed "s|{SOURCE_DIR}|$PWD/source|" source.sql
+    cat create.sql insert.sql
+} | psql -h 127.0.0.1 -p "$PIVOT_PORT" -U pivot -d pivot -v ON_ERROR_STOP=1 -q -f -
+
+rm -rf source

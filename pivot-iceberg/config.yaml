@@ -1,0 +1,27 @@
+server:
+  bind: 127.0.0.1:{PIVOT_PORT}
+
+datastores:
+  lake:
+    kind: iceberg
+    uri: {LAKE_CATALOG_URI}
+    warehouse: {LAKE_WAREHOUSE}
+    secret: lake-catalog
+  local:
+    kind: pivotlake
+    location: {PIVOT_DATA_DIR}
+    default: true
+
+secrets:
+  lake-storage:
+    type: s3
+    scope: {LAKE_WAREHOUSE_LOCATION}/
+    region: {AWS_REGION}
+    endpoint: {LAKE_S3_ENDPOINT}
+    access_key_id: {AWS_ACCESS_KEY_ID}
+    secret_access_key: {AWS_SECRET_ACCESS_KEY}
+  lake-catalog:
+    type: iceberg
+    credential: {LAKE_CLIENT_ID}:{LAKE_CLIENT_SECRET}
+    oauth2_server_uri: {LAKE_OAUTH_URI}
+    oauth2_scope: catalog
