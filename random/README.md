@@ -113,7 +113,9 @@ Parameters (workflow inputs, or environment variables of `launch.sh`): the
 number of rows (`RANDOM_ROWS`, default 1000000000), of queries
 (`RANDOM_QUERIES`, 100), of concurrent workers (`RANDOM_PARALLEL_QUERIES`, 4),
 of repeats (`RANDOM_REPEATS`, 3), and the time limit of a query
-(`RANDOM_QUERY_TIMEOUT`, 600 s).
+(`RANDOM_QUERY_TIMEOUT`, 600 s). A query that runs into the time limit counts
+as a timeout, and the system is restarted after it: killing the client alone
+can leave the query running in the system, where it holds the next ones back.
 
 ## The report
 
