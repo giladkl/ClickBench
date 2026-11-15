@@ -76,7 +76,8 @@ def run_one(sql, out_path, timeout):
     return "ok", elapsed, reported, ""
 
 
-CHECK_TIMEOUT = 60
+# Long enough for a system that answers slowly while it is busy with queries.
+CHECK_TIMEOUT = int(os.environ.get("RANDOM_CHECK_TIMEOUT", "300"))
 
 
 def is_up():
