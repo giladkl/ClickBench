@@ -22,6 +22,12 @@ reported by the system, and the start offset.
 A watchdog polls ./check every 5 seconds; if the system is down, it is
 restarted with ./start, and for an in-memory system (BENCH_DURABLE=no) ./load
 runs again; the queries that fail meanwhile are errors.
+
+A query that runs into the timeout has only its client killed, and the system
+may go on running it and hold the next queries back, so the system is
+restarted in the same way. The query is still a timeout, and these restarts
+are counted apart (timeout_restarts) from the ones of a system that went down
+(restarts).
 """
 
 import argparse
@@ -70,16 +76,31 @@ def run_one(sql, out_path, timeout):
     return "ok", elapsed, reported, ""
 
 
+# Long enough for a system that answers slowly while it is busy with queries.
+CHECK_TIMEOUT = int(os.environ.get("RANDOM_CHECK_TIMEOUT", "300"))
+
+
 def is_up():
-    return subprocess.run(["./check"], capture_output=True).returncode == 0
+    """A system whose ./check doesn't answer in CHECK_TIMEOUT s is down as
+    well: it may accept the connection and never reply, while a query holds
+    all of its threads."""
+    process = subprocess.Popen(["./check"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                               start_new_session=True)
+    try:
+        return process.wait(timeout=CHECK_TIMEOUT) == 0
+    except subprocess.TimeoutExpired:
+        os.killpg(process.pid, signal.SIGKILL)
+        process.wait()
+        return False
 
 
 def watchdog(stop, restarts, up, dead):
     """Restarts the system when it is down: every 5 s, or at once when a worker
-    finds it down after a failed query (up cleared). The workers wait while it
-    is down (up), so the queries of the schedule don't fail one after another
-    in the restart. A system that doesn't come back in 300 s is dead: the
-    workers go on, and the rest of the queries fail without being sent."""
+    finds it down after a failed query or has a query time out (up cleared).
+    The workers wait while it is down (up), so the queries of the schedule
+    don't fail one after another in the restart. A system that doesn't come
+    back in 300 s is dead: the workers go on, and the rest of the queries fail
+    without being sent."""
     while not stop.is_set():
         if up.is_set():
             stop.wait(5)
@@ -87,7 +108,7 @@ def watchdog(stop, restarts, up, dead):
                 continue
             up.clear()
         restarts.append(time.time())
-        print("driver: the system is down, restarting", file=sys.stderr)
+        print("driver: restarting the system", file=sys.stderr)
         subprocess.run(["./stop"], capture_output=True)
         subprocess.run(["./start"], capture_output=True)
         for _ in range(300):
@@ -142,11 +163,21 @@ def main():
             elif dead.is_set():
                 status, elapsed, reported, error = "error", 0.0, None, "the system is down and did not come back"
             else:
+                restarts_before = len(restarts)
                 status, elapsed, reported, error = run_one(q["sql"], os.path.join(out_dir, f"{q['id']}.{r}.out"),
                                                            args.timeout)
+                if status == "timeout" and watched:
+                    # Only the client was killed: the system may still be
+                    # running the query. Restart it, once for all the queries
+                    # that timed out behind the same one.
+                    with lock:
+                        if up.is_set() and len(restarts) == restarts_before:
+                            timeout_restarts.append(time.time())
+                            print(f"driver: {q['id']}.{r} timed out, the system will be restarted", file=sys.stderr)
+                            up.clear()
                 # The system went down in this query (it still counts as a
                 # failure): the next queries wait for the restart.
-                if status != "ok" and watched and not is_up():
+                elif status != "ok" and watched and not is_up():
                     up.clear()
             record = {"id": q["id"], "repeat": r, "worker": n, "status": status, "start": round(begin, 3),
                       "time": round(elapsed, 3), "reported_time": reported, "error": error}
@@ -155,6 +186,7 @@ def main():
             print(f"driver: {q['id']}.{r} {status} {elapsed:.3f} s", file=sys.stderr)
 
     stop, restarts, up, dead = threading.Event(), [], threading.Event(), threading.Event()
+    timeout_restarts = []
     up.set()
     watched = not args.no_watchdog
     if watched:
@@ -173,7 +205,8 @@ def main():
         counts[e["status"]] = counts.get(e["status"], 0) + 1
     with open(os.path.join(args.output, "run.json"), "w") as f:
         json.dump({"total_time": round(total, 3), "parallel": args.parallel, "repeats": args.repeats,
-                   "timeout": args.timeout, "restarts": len(restarts), "counts": counts,
+                   "timeout": args.timeout, "restarts": len(restarts) - len(timeout_restarts),
+                   "timeout_restarts": len(timeout_restarts), "counts": counts,
                    "executions": executions}, f, indent=1)
     print(f"Total time: {total:.3f}", file=sys.stderr)
     print(f"Statuses: {json.dumps(counts)}", file=sys.stderr)
