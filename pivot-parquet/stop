@@ -15,5 +15,15 @@ for _ in $(seq 1 300); do
     fi
     sleep 0.2
 done
-echo "stop: pivot (pid $pid) is still running after 60s" >&2
+# A server that is busy with a query may not act on SIGTERM.
+echo "stop: pivot (pid $pid) is still running after 60s, killing it" >&2
+kill -9 "$pid" 2>/dev/null || true
+for _ in $(seq 1 300); do
+    if ! kill -0 "$pid" 2>/dev/null; then
+        rm -f server.pid
+        exit 0
+    fi
+    sleep 0.2
+done
+echo "stop: pivot (pid $pid) is still running after SIGKILL" >&2
 exit 1

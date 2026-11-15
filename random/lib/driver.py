@@ -76,8 +76,21 @@ def run_one(sql, out_path, timeout):
     return "ok", elapsed, reported, ""
 
 
+CHECK_TIMEOUT = 60
+
+
 def is_up():
-    return subprocess.run(["./check"], capture_output=True).returncode == 0
+    """A system whose ./check doesn't answer in CHECK_TIMEOUT s is down as
+    well: it may accept the connection and never reply, while a query holds
+    all of its threads."""
+    process = subprocess.Popen(["./check"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                               start_new_session=True)
+    try:
+        return process.wait(timeout=CHECK_TIMEOUT) == 0
+    except subprocess.TimeoutExpired:
+        os.killpg(process.pid, signal.SIGKILL)
+        process.wait()
+        return False
 
 
 def watchdog(stop, restarts, up, dead):
